@@ -38,6 +38,19 @@ describe("tool names", () => {
     for (const [mcp, bedrock] of names.entries()) assert.equal(names.toMcp(bedrock), mcp);
   });
 
+  it("gives the same aliases whatever order the server lists its tools in", () => {
+    const names = ["a.b", "a:b", "a_c", "x".repeat(70), "x".repeat(70) + "y"];
+    const pairs = (list: string[]) => [...new ToolNameMap(list).entries()].sort();
+    const expected = pairs(names);
+    assert.deepEqual(pairs([...names].reverse()), expected);
+    assert.deepEqual(pairs([names[1]!, names[4]!, names[0]!, names[3]!, names[2]!]), expected);
+    // entries() still follows the tool list order.
+    assert.deepEqual(
+      [...new ToolNameMap(["a:b", "a.b"]).entries()].map(([mcp]) => mcp),
+      ["a:b", "a.b"],
+    );
+  });
+
   it("rejects empty and duplicate names", () => {
     assert.throws(() => new ToolNameMap([""]), TypeError);
     assert.throws(() => new ToolNameMap(["a", "a"]), TypeError);

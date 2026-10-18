@@ -23,19 +23,26 @@ export class ToolNameMap {
    * Builds aliases for a list of unique, non-empty MCP tool names. Names that are already valid
    * keep their name; the others get `_` for each invalid character and, if that is too long or
    * taken, a truncated name plus a hash of the original name.
+   * Aliases are assigned in sorted name order, so they don't depend on the order the server
+   * lists its tools in. Adding or removing a tool can still change another tool's alias when
+   * their names collide after sanitizing.
    */
   constructor(mcpNames: Iterable<string>) {
     const names = [...mcpNames];
+    const invalid: string[] = [];
     for (const name of names) {
       if (typeof name !== "string" || name.length === 0) throw new TypeError("Tool names must be non-empty strings");
       if (this.#toBedrock.has(name)) throw new TypeError(`Duplicate tool name: ${quote(name)}`);
       // Valid names are reserved first, so an alias never takes a real tool's name.
       if (isValidBedrockToolName(name)) this.#add(name, name);
-      else this.#toBedrock.set(name, "");
+      else {
+        // Placeholder: keeps entries() in tool-list order.
+        this.#toBedrock.set(name, "");
+        invalid.push(name);
+      }
     }
-    for (const name of names) {
-      if (this.#toBedrock.get(name) === "") this.#add(name, this.#aliasFor(name));
-    }
+    // Default sort compares UTF-16 code units: the same in every runtime and locale.
+    for (const name of invalid.sort()) this.#add(name, this.#aliasFor(name));
   }
 
   /** The Bedrock name for an MCP tool name, or undefined if the tool isn't in the map. */
