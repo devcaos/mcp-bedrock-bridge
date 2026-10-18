@@ -60,14 +60,15 @@ export type BridgeWarningCode =
 /**
  * Something the library changed or dropped. Never contains argument values or result content
  * (text, JSON, image data), but the message can include server-provided tool names, schema
- * paths, mime types and URIs (quoted and length-capped).
+ * paths and mime types. Only `message` is quoted and length-capped: `tool` and `path` keep the
+ * raw server value, so escape them before logging.
  */
 export interface BridgeWarning {
   code: BridgeWarningCode;
   message: string;
-  /** MCP tool name, when the warning is about a tool definition. */
+  /** MCP tool name (raw), when the warning is about a tool definition. */
   tool?: string;
-  /** JSON Pointer inside the tool's inputSchema. */
+  /** JSON Pointer inside the tool's inputSchema (raw). */
   path?: string;
   /** Bedrock toolUseId, when the warning is about a tool result. */
   toolUseId?: string;

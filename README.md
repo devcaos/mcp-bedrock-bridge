@@ -107,8 +107,10 @@ Options:
 
 | Option | Default | |
 |---|---|---|
-| `onUnsafeSchema` | `"warn"` | What to do with schemas that aren't Nova-safe. See [Unsafe schemas](#unsafe-schemas). |
+| `onUnsafeSchema` | `"warn"` | What to do with schemas that aren't Nova-safe: `"warn"`, `"throw"` or `"passthrough"` (any other value throws `TypeError`). See [Unsafe schemas](#unsafe-schemas). |
 | `maxSchemaDepth` | `32` | Maximum JSON nesting depth of an `inputSchema`, an integer from 1 to 256 (otherwise `TypeError`). A deeper or circular schema is unsafe and is never sent. |
+
+`null` counts as not set: every option then uses its default.
 | `onWarning` | `console.warn` | Called for each warning. `() => {}` silences them. |
 
 Each tool's `description` falls back to its `title`, then its `name`, because Bedrock requires a non-empty description when one is sent. A tool without a name, or a second tool with the same name, is skipped with a warning. If no tools are left, you get a `no-tools` warning: in that case don't send the empty `toolConfig`. If `tools` is neither an array nor an object with a `tools` array, it throws `TypeError`.
@@ -158,7 +160,7 @@ Returns `{ toolResult: { toolUseId, content, status } }`, a Converse `ContentBlo
 | `"always"` | Always kept: `{ result: structuredContent, text }`. |
 | `"never"` | Always dropped. |
 
-Other options: `includeStatus` (default `true`; set it to `false` for models that don't support `status`), `emptyText` (must not be blank), `maxJsonDepth` (default `32`, an integer from 1 to 256, used by the `"auto"` comparison) and `onWarning`. An invalid `emptyText` or `maxJsonDepth` throws `TypeError`.
+Other options: `includeStatus` (default `true`; set it to `false` for models that don't support `status`), `emptyText` (must not be blank), `maxJsonDepth` (default `32`, an integer from 1 to 256, used by the `"auto"` comparison) and `onWarning`. An invalid `textMode`, `emptyText` or `maxJsonDepth` throws `TypeError`; `null` uses the default.
 
 Content that Bedrock can't take is replaced by a short text marker, with a warning, so the model knows something was there:
 
@@ -179,7 +181,7 @@ The library doesn't produce Bedrock `document`, `video` or `searchResult` blocks
 
 - `ToolNameMap`: `toBedrock(mcpName)`, `toMcp(bedrockName)`, `entries()`, `size`.
 - `isValidBedrockToolName(name)`
-- `UnsafeSchemaError` (with `issues: { tool, path, reason }[]`) and `UnknownToolError` (with `toolName`).
+- `UnsafeSchemaError` (with `issues: { tool, path, reason }[]`; `tool` is `""` for a tool without a name) and `UnknownToolError` (with `toolName`). These fields hold the raw values; only the error message is quoted.
 - Types: `McpTool`, `McpCallToolResult`, `McpToolCall`, `BridgeWarning`, `BridgeWarningCode`, and the options types.
 
 ## Nova-safe rules
@@ -215,8 +217,8 @@ A schema is unsafe when it has any of these (warning code in brackets):
 - A nested object: an `object` property, or an array of objects (`nested-schema`).
 - An untyped property: `{}`, a property with only a `description`, or `true`, as zod's `z.any()` produces (`untyped-schema`). It is sent without a `type`. **Accepting untyped properties is unverified against Bedrock**: no AWS doc says whether a property needs a `type`. test:bedrock: Nova 2 Lite accepted one in a single run.
 - A map: an object with `additionalProperties` and no `properties`, as zod's `z.record` produces (`map-schema`). `additionalProperties` isn't sent, so the model sees an object with no keys.
-- A part that can't be converted: `$ref`, `anyOf`/`oneOf`/`allOf`/`not` other than a nullable pair, union types, tuple `items` (`unsupported-schema`).
-- A root-level problem: an `inputSchema` or root that isn't an object, `$ref` or a combinator at the root, or `properties` that isn't an object (`unsupported-schema`).
+- A part that can't be converted: `$ref`, `anyOf`/`oneOf`/`allOf`/`not` other than a nullable pair, union types, tuple `items` (`unsupported-schema`). A nullable pair (`anyOf: [X, { type: "null" }]`) may carry annotations next to it (`title`, `description`, `default`, `examples`, `deprecated`, `readOnly`, `writeOnly`, `$comment`), as Pydantic and FastMCP write `Optional[...] = None` fields; they are dropped, except `description`.
+- A root-level problem: an `inputSchema` or root that isn't an object, `$ref` or a combinator at the root, or `properties` that isn't an object, at any level (`unsupported-schema`). A root `type` of `["object"]` or `["object", "null"]` counts as `"object"`.
 - More than `maxSchemaDepth` levels of nesting, or a cycle (`schema-too-deep`).
 
 | `onUnsafeSchema` | Nested objects, untyped properties, maps | Parts that can't be converted | Root-level problems, too deep or circular |
@@ -250,7 +252,7 @@ This was one model, one region and one day. Bedrock's behaviour may change.
 
 ## Limitations
 
-- **Tool descriptions, schemas and results are untrusted input.** They come from the MCP server, and they reach the model. The library makes them structurally safe: own properties only, no prototype pollution, depth limits, Map lookups for untrusted keys, and server strings quoted in warnings and errors. It does **not** protect against prompt injection in descriptions or results. Only connect servers you trust, and keep a human in the loop for actions that matter.
+- **Tool descriptions, schemas and results are untrusted input.** They come from the MCP server, and they reach the model. The library makes them structurally safe: own properties only, no prototype pollution, depth limits, Map lookups for untrusted keys, and server- or model-provided strings JSON-quoted and length-capped in the **message text** of warnings and errors. Structured fields keep the raw value: `warning.tool`, `warning.path`, `UnknownToolError.toolName` and `UnsafeSchemaError.issues`. Escape them yourself before you log them. It does **not** protect against prompt injection in descriptions or results. Only connect servers you trust, and keep a human in the loop for actions that matter.
 - No `$ref`/`$defs` inlining. Tools that use them are left out under `"warn"`. Schema generators such as zod can emit `$ref` for recursive schemas.
 - Validation keywords (`pattern`, `format`, `minLength`, `minimum`...) aren't sent to the model, so it may produce values the server rejects. The server's `isError` result then goes back with `status: "error"`, so the model can correct itself.
 - Images in a result that has `structuredContent` are dropped. Audio and non-image binary resources become text markers.
@@ -258,6 +260,7 @@ This was one model, one region and one day. Bedrock's behaviour may change.
 - Tested only with Amazon Nova 2 Lite. `status` and image results are documented for Nova and Claude 3/4 only.
 - `toBedrockToolConfig` converts the tools you pass it. It doesn't follow `tools/list` pagination (`nextCursor`): collect every page first.
 - Schemas built in the same process can share objects (a DAG). The depth limit still applies, but a wide schema that reuses the same sub-schema many times can take seconds to walk. Schemas that arrive as JSON can't share objects.
+- Image bytes aren't checked against the declared `mimeType`. The library only checks that the base64 decodes to at least 1 byte, so a corrupt image, or a JPEG declared as `image/png`, is sent as an `image` block, and Bedrock may reject the request (**unverified**).
 - No size or count limit on images in tool results: every valid image is sent as it is. Bedrock's image size and count limits for tool results are **unverified** here.
 - Warnings go to `console.warn` by default.
 
