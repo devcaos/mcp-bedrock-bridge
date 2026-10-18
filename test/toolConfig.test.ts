@@ -1,0 +1,117 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { isValidBedrockToolName, toBedrockToolConfig, toMcpToolCall, ToolNameMap, UnknownToolError } from "../src/index.ts";
+import type { BridgeWarning, McpTool } from "../src/index.ts";
+
+const schema = { type: "object", properties: { id: { type: "string" } }, required: ["id"] };
+const tool = (name: string, extra: Partial<McpTool> = {}): McpTool => ({ name, description: `Tool ${name}`, inputSchema: schema, ...extra });
+const quiet = { onWarning: () => {} };
+
+describe("tool names", () => {
+  it("keeps valid names", () => {
+    const names = new ToolNameMap(["get_user", "DATA-export_v2"]);
+    assert.equal(names.toBedrock("get_user"), "get_user");
+    assert.equal(names.toBedrock("DATA-export_v2"), "DATA-export_v2");
+  });
+
+  it("replaces characters Bedrock doesn't accept", () => {
+    const names = new ToolNameMap(["admin.tools.list", "ünicode tool"]);
+    assert.equal(names.toBedrock("admin.tools.list"), "admin_tools_list");
+    assert.equal(names.toBedrock("ünicode tool"), "_nicode_tool");
+    assert.equal(names.toMcp("admin_tools_list"), "admin.tools.list");
+  });
+
+  it("shortens names longer than 64 characters with a stable hash", () => {
+    const long = `a.${"x".repeat(126)}`;
+    const alias = new ToolNameMap([long]).toBedrock(long) ?? "";
+    assert.ok(isValidBedrockToolName(alias));
+    assert.equal(alias.length, 64);
+    assert.equal(new ToolNameMap([long]).toBedrock(long), alias);
+  });
+
+  it("never gives two tools the same name", () => {
+    const names = new ToolNameMap(["a.b", "a_b", "a-b", "a/b"]);
+    const aliases = [...names.entries()].map(([, bedrock]) => bedrock);
+    assert.equal(new Set(aliases).size, 4);
+    assert.equal(names.toBedrock("a_b"), "a_b");
+    for (const alias of aliases) assert.ok(isValidBedrockToolName(alias));
+    for (const [mcp, bedrock] of names.entries()) assert.equal(names.toMcp(bedrock), mcp);
+  });
+
+  it("rejects empty and duplicate names", () => {
+    assert.throws(() => new ToolNameMap([""]), TypeError);
+    assert.throws(() => new ToolNameMap(["a", "a"]), TypeError);
+  });
+});
+
+describe("toBedrockToolConfig", () => {
+  it("accepts a tools/list result and builds tool specs", () => {
+    const { toolConfig, toolNames, warnings } = toBedrockToolConfig({ tools: [tool("orders.get_status")] });
+    assert.deepEqual(toolConfig, {
+      tools: [{ toolSpec: { name: "orders_get_status", description: "Tool orders.get_status", inputSchema: { json: schema } } }],
+    });
+    assert.equal(toolNames.toMcp("orders_get_status"), "orders.get_status");
+    assert.equal(warnings.length, 0);
+  });
+
+  it("uses the title or name when there is no description", () => {
+    const { toolConfig } = toBedrockToolConfig([
+      { name: "a", title: "Title A", inputSchema: schema },
+      { name: "b", description: "  ", inputSchema: schema },
+    ]);
+    assert.deepEqual(
+      toolConfig.tools?.map((t) => t.toolSpec?.description),
+      ["Title A", "b"],
+    );
+  });
+
+  it("skips tools without a name and duplicate tools, with warnings", () => {
+    const warnings: BridgeWarning[] = [];
+    const { toolConfig } = toBedrockToolConfig([tool("a"), tool("a"), { inputSchema: schema } as unknown as McpTool], {
+      onWarning: (w) => warnings.push(w),
+    });
+    assert.equal(toolConfig.tools?.length, 1);
+    assert.deepEqual(
+      warnings.map((w) => w.code),
+      ["duplicate-tool", "invalid-tool"],
+    );
+  });
+
+  it("warns when no tools are left", () => {
+    const { toolConfig, warnings } = toBedrockToolConfig([], quiet);
+    assert.deepEqual(toolConfig, { tools: [] });
+    assert.equal(warnings[0]?.code, "no-tools");
+  });
+
+  it("sends warnings to console.warn by default", (t) => {
+    const warn = t.mock.method(console, "warn", () => {});
+    toBedrockToolConfig([tool("a", { inputSchema: { type: "object", properties: { o: { type: "object" } } } })]);
+    assert.equal(warn.mock.callCount(), 1);
+    assert.match(String(warn.mock.calls[0]?.arguments[0]), /^\[mcp-bedrock-bridge\] .*nested object/);
+  });
+});
+
+describe("toMcpToolCall", () => {
+  const { toolNames } = toBedrockToolConfig([tool("orders.get_status")]);
+
+  it("maps a toolUse back to the MCP name and arguments", () => {
+    const call = toMcpToolCall({ name: "orders_get_status", input: { id: "A-1" } }, toolNames);
+    assert.deepEqual(call, { name: "orders.get_status", arguments: { id: "A-1" } });
+  });
+
+  it("uses empty arguments when the input is missing", () => {
+    assert.deepEqual(toMcpToolCall({ name: "orders_get_status", input: undefined }, toolNames).arguments, {});
+  });
+
+  it("rejects unknown tools, including the original MCP name", () => {
+    assert.throws(() => toMcpToolCall({ name: "delete_everything", input: {} }, toolNames), UnknownToolError);
+    assert.throws(() => toMcpToolCall({ name: "orders.get_status", input: {} }, toolNames), UnknownToolError);
+    assert.throws(() => toMcpToolCall({ name: undefined, input: {} }, toolNames), UnknownToolError);
+  });
+
+  it("rejects input that isn't an object", () => {
+    for (const input of ["text", 3, null, ["a"]]) {
+      assert.throws(() => toMcpToolCall({ name: "orders_get_status", input }, toolNames), TypeError);
+    }
+  });
+});
