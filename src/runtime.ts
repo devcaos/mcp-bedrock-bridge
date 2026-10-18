@@ -29,6 +29,17 @@ export function own(object: Record<string, unknown>, key: string): unknown {
   return Object.hasOwn(object, key) ? object[key] : undefined;
 }
 
+const MAX_DEPTH_OPTION = 256;
+
+/** A depth option: the default when undefined, otherwise an integer from 1 to 256. */
+export function depthOption(name: string, value: unknown, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > MAX_DEPTH_OPTION) {
+    throw new TypeError(`${name} must be an integer from 1 to ${MAX_DEPTH_OPTION}`);
+  }
+  return value;
+}
+
 /**
  * The nesting depth of a JSON-like value (objects and arrays count as one level each), or
  * Infinity when it is deeper than `max`. A circular value is reported as Infinity too, because

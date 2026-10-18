@@ -57,6 +57,19 @@ describe("toBedrockToolResult: text results", () => {
     assert.deepEqual(convert({ content: [] }, { emptyText: "Done." }).content, [{ text: "Done." }]);
   });
 
+  it("rejects a blank emptyText", () => {
+    for (const emptyText of ["", "  \n", 3]) {
+      assert.throws(() => convert({ content: [] }, { emptyText: emptyText as string }), TypeError);
+    }
+  });
+
+  it("requires maxJsonDepth to be an integer from 1 to 256", () => {
+    for (const maxJsonDepth of [0, 257, 1.5, NaN, Infinity, "32"]) {
+      assert.throws(() => convert({ content: [] }, { maxJsonDepth: maxJsonDepth as number }), TypeError);
+    }
+    assert.deepEqual(convert({ content: [] }, { maxJsonDepth: 256 }).content, [{ text: "(no content)" }]);
+  });
+
   it("rejects an invalid toolUseId", () => {
     for (const id of ["", "has space", "x".repeat(65)]) {
       assert.throws(() => toBedrockToolResult(id, { content: [] }), TypeError);

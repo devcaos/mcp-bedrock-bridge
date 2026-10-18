@@ -2,7 +2,7 @@ import type { Tool, ToolConfiguration, ToolInputSchema, ToolUseBlock } from "@aw
 import { UnknownToolError, UnsafeSchemaError } from "./errors.ts";
 import type { SchemaIssue } from "./errors.ts";
 import { ToolNameMap } from "./names.ts";
-import { isPlainObject, warnToConsole } from "./runtime.ts";
+import { depthOption, isPlainObject, own, warnToConsole } from "./runtime.ts";
 import { sanitizeInputSchema } from "./schema.ts";
 import type { UnsafeSchemaPolicy } from "./schema.ts";
 import type { BridgeWarning, McpListToolsResult, McpTool, McpToolCall, WarningHandler } from "./types.ts";
@@ -20,7 +20,10 @@ export interface ToBedrockToolConfigOptions {
    * never sent.
    */
   onUnsafeSchema?: UnsafeSchemaPolicy;
-  /** Maximum JSON nesting depth of an inputSchema (default 32). Deeper or circular schemas are unsafe. */
+  /**
+   * Maximum JSON nesting depth of an inputSchema, an integer from 1 to 256 (default 32). Deeper
+   * or circular schemas are unsafe.
+   */
   maxSchemaDepth?: number;
   /** Called for every warning (default: console.warn). Pass `() => {}` to silence them. */
   onWarning?: WarningHandler;
@@ -46,9 +49,9 @@ export function toBedrockToolConfig(
   options: ToBedrockToolConfigOptions = {},
 ): BedrockToolConfigResult {
   const policy = options.onUnsafeSchema ?? "warn";
-  const maxDepth = options.maxSchemaDepth ?? DEFAULT_MAX_SCHEMA_DEPTH;
+  const maxDepth = depthOption("maxSchemaDepth", options.maxSchemaDepth, DEFAULT_MAX_SCHEMA_DEPTH);
   const onWarning = options.onWarning ?? warnToConsole;
-  const list: readonly unknown[] = Array.isArray(tools) ? tools : ((tools as McpListToolsResult).tools ?? []);
+  const list = toolList(tools);
 
   const warnings: BridgeWarning[] = [];
   const warn = (warning: BridgeWarning) => {
@@ -60,7 +63,10 @@ export function toBedrockToolConfig(
   const seen = new Set<string>();
 
   for (const tool of list) {
-    const name = typeof tool === "object" && tool !== null && typeof (tool as McpTool).name === "string" ? (tool as McpTool).name : "";
+    // Own properties only: a polluted Object.prototype can't add a name, description or schema.
+    const fields = typeof tool === "object" && tool !== null ? (tool as Record<string, unknown>) : {};
+    const rawName = own(fields, "name");
+    const name = typeof rawName === "string" ? rawName : "";
     if (name.length === 0) {
       if (policy === "throw") issues.push({ tool: "(unnamed)", path: "", reason: "tool has no name" });
       else warn({ code: "invalid-tool", message: "Skipped a tool without a name." });
@@ -71,15 +77,14 @@ export function toBedrockToolConfig(
       continue;
     }
     seen.add(name);
-    const mcpTool = tool as unknown as McpTool;
 
-    const { schema, problems } = sanitizeInputSchema(mcpTool.inputSchema, {
+    const { schema, problems } = sanitizeInputSchema(own(fields, "inputSchema"), {
       maxDepth,
       passthrough: policy === "passthrough",
     });
     if (policy === "throw") {
       issues.push(...problems.map(({ path, reason }) => ({ tool: name, path, reason })));
-      if (problems.length === 0) accepted.push({ name, description: descriptionOf(mcpTool), schema });
+      if (problems.length === 0) accepted.push({ name, description: descriptionOf(fields, name), schema });
       continue;
     }
     const excluded = problems.some((p) => p.excludesTool || (p.fatal && policy === "warn"));
@@ -97,7 +102,7 @@ export function toBedrockToolConfig(
       warn({ code: "tool-excluded", tool: name, message: `Left ${quote(name)} out of the toolConfig: its schema isn't Nova-safe.` });
       continue;
     }
-    accepted.push({ name, description: descriptionOf(mcpTool), schema });
+    accepted.push({ name, description: descriptionOf(fields, name), schema });
   }
 
   if (issues.length > 0) throw new UnsafeSchemaError(issues);
@@ -128,12 +133,22 @@ export function toMcpToolCall(toolUse: Pick<ToolUseBlock, "name" | "input">, too
   return { name, arguments: input };
 }
 
+// The tools array, from a tools/list result or the array itself.
+function toolList(tools: unknown): readonly unknown[] {
+  if (Array.isArray(tools)) return tools;
+  if (typeof tools === "object" && tools !== null) {
+    const list = own(tools as Record<string, unknown>, "tools");
+    if (Array.isArray(list)) return list;
+  }
+  throw new TypeError("tools must be a tools/list result ({ tools: [...] }) or its tools array");
+}
+
 // Bedrock requires a non-empty description when one is sent.
-function descriptionOf(tool: McpTool): string {
-  for (const text of [tool.description, tool.title, tool.name]) {
+function descriptionOf(tool: Record<string, unknown>, name: string): string {
+  for (const text of [own(tool, "description"), own(tool, "title")]) {
     if (typeof text === "string" && text.trim().length > 0) return text;
   }
-  return tool.name;
+  return name;
 }
 
 function quote(name: string): string {

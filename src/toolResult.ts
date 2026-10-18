@@ -1,5 +1,5 @@
 import type { ContentBlock, ImageBlock, ImageFormat, ToolResultContentBlock } from "@aws-sdk/client-bedrock-runtime";
-import { decodeBase64, isPlainObject, own, warnToConsole } from "./runtime.ts";
+import { decodeBase64, depthOption, isPlainObject, own, warnToConsole } from "./runtime.ts";
 import type { McpCallToolResult, McpCompatibilityCallToolResult, WarningHandler } from "./types.ts";
 
 // Builds the Converse toolResult for an MCP tools/call result.
@@ -23,9 +23,12 @@ export interface ToBedrockToolResultOptions {
   textMode?: TextMode;
   /** Send `status: "success" | "error"` (default true). Bedrock documents it for Nova and Claude 3/4 only. */
   includeStatus?: boolean;
-  /** Text sent when the result has no content at all (default "(no content)"). */
+  /** Text sent when the result has no content at all (default "(no content)"). Must not be blank. */
   emptyText?: string;
-  /** Maximum nesting depth used when comparing the text with structuredContent (default 32). */
+  /**
+   * Maximum nesting depth used when comparing the text with structuredContent, an integer from
+   * 1 to 256 (default 32).
+   */
   maxJsonDepth?: number;
   /** Called for every piece of content that was left out (default: console.warn). */
   onWarning?: WarningHandler;
@@ -56,6 +59,9 @@ export function toBedrockToolResult(
   if (typeof toolUseId !== "string" || !TOOL_USE_ID.test(toolUseId)) {
     throw new TypeError("toolUseId must be the toolUseId of the model's toolUse block (1-64 of [a-zA-Z0-9_.:-])");
   }
+  const maxJsonDepth = depthOption("maxJsonDepth", options.maxJsonDepth, DEFAULT_MAX_JSON_DEPTH);
+  const emptyText = options.emptyText ?? "(no content)";
+  if (typeof emptyText !== "string" || emptyText.trim().length === 0) throw new TypeError("emptyText must be a non-blank string");
   const onWarning = options.onWarning ?? warnToConsole;
   const omitted = (what: string) =>
     onWarning({ code: "content-omitted", toolUseId, message: `Tool result ${toolUseId}: ${what}.` });
@@ -73,12 +79,12 @@ export function toBedrockToolResult(
   let content: ToolResultContentBlock[];
   if (structured !== undefined) {
     if (images.length > 0) omitted(`${images.length} image(s) left out, a result with structuredContent is sent as a single json block`);
-    const keepText = text.length > 0 && keepTextWith(structured, text, options);
+    const keepText = text.length > 0 && keepTextWith(structured, text, options.textMode ?? "auto", maxJsonDepth);
     const json = keepText ? { result: structured, text } : isPlainObject(structured) ? structured : { result: structured };
     content = [{ json } as ToolResultContentBlock.JsonMember];
   } else {
     content = [...(text.length > 0 ? [{ text }] : []), ...images.map((image) => ({ image }))];
-    if (content.length === 0) content = [{ text: options.emptyText ?? "(no content)" }];
+    if (content.length === 0) content = [{ text: emptyText }];
   }
 
   const isError = own(result, "isError") === true;
@@ -91,11 +97,10 @@ export function toBedrockToolResult(
   };
 }
 
-function keepTextWith(structured: unknown, text: string, options: ToBedrockToolResultOptions): boolean {
-  const mode = options.textMode ?? "auto";
+function keepTextWith(structured: unknown, text: string, mode: TextMode, maxDepth: number): boolean {
   if (mode === "always") return true;
   if (mode === "never") return false;
-  return !isJsonCopy(text, structured, options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH);
+  return !isJsonCopy(text, structured, maxDepth);
 }
 
 // True when the text parses as JSON equal to the value (key order and whitespace don't matter).

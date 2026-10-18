@@ -83,6 +83,40 @@ describe("toBedrockToolConfig", () => {
     assert.equal(warnings[0]?.code, "no-tools");
   });
 
+  it("rejects tools that aren't an array or a tools/list result", () => {
+    for (const tools of [null, undefined, {}, { tools: {} }, { tools: "ab" }, "ab", 3]) {
+      assert.throws(() => toBedrockToolConfig(tools as never, quiet), TypeError);
+    }
+  });
+
+  it("requires maxSchemaDepth to be an integer from 1 to 256", () => {
+    for (const maxSchemaDepth of [0, 257, 1.5, NaN, Infinity, -1, "32"]) {
+      assert.throws(() => toBedrockToolConfig([tool("a")], { ...quiet, maxSchemaDepth: maxSchemaDepth as number }), TypeError);
+    }
+    assert.equal(toBedrockToolConfig([tool("a")], { ...quiet, maxSchemaDepth: 256 }).toolConfig.tools?.length, 1);
+    assert.equal(toBedrockToolConfig([tool("a")], { ...quiet, maxSchemaDepth: 1 }).toolConfig.tools?.length, 0);
+  });
+
+  it("doesn't read a tool's fields from a polluted prototype", () => {
+    const proto = Object.prototype as Record<string, unknown>;
+    proto.description = "polluted";
+    proto.inputSchema = { type: "object", properties: { injected: { type: "string" } } };
+    proto.name = "injected";
+    try {
+      const { toolConfig, warnings } = toBedrockToolConfig([{ title: "T" } as unknown as McpTool, JSON.parse('{"name":"a"}')], quiet);
+      assert.deepEqual(warnings.map((w) => w.code), ["invalid-tool"]);
+      assert.deepEqual(toolConfig.tools?.[0]?.toolSpec, {
+        name: "a",
+        description: "a",
+        inputSchema: { json: { type: "object", properties: {}, required: [] } },
+      });
+    } finally {
+      delete proto.description;
+      delete proto.inputSchema;
+      delete proto.name;
+    }
+  });
+
   it("sends warnings to console.warn by default", (t) => {
     const warn = t.mock.method(console, "warn", () => {});
     toBedrockToolConfig([tool("a", { inputSchema: { type: "object", properties: { o: { type: "object" } } } })]);
