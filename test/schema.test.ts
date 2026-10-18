@@ -75,6 +75,42 @@ describe("Nova-safe input schemas", () => {
     assert.equal(warnings.length, 0);
   });
 
+  it("collapses a nullable pair with annotations, as Pydantic writes Optional[...] = None", () => {
+    const { schema, warnings } = convert({
+      type: "object",
+      properties: {
+        // The exact shape Pydantic v2 (and so FastMCP) emits for `x: str | None = None`.
+        x: { anyOf: [{ type: "string" }, { type: "null" }], default: null, title: "X" },
+        y: {
+          anyOf: [{ type: "integer" }, { type: "null" }],
+          default: null,
+          description: "How many",
+          examples: [3],
+          title: "Y",
+          deprecated: false,
+          readOnly: false,
+          writeOnly: false,
+          $comment: "c",
+        },
+      },
+      title: "fArguments",
+    });
+    assert.deepEqual(schema?.properties, { x: { type: "string" }, y: { type: "integer", description: "How many" } });
+    assert.equal(warnings.length, 0);
+  });
+
+  it("still rejects a nullable pair next to a keyword that isn't an annotation", () => {
+    const { schema, warnings } = convert({
+      type: "object",
+      properties: { x: { anyOf: [{ type: "string" }, { type: "null" }], minLength: 1 } },
+    });
+    assert.equal(schema, undefined);
+    assert.deepEqual(
+      warnings.map((w) => w.code),
+      ["unsupported-schema", "tool-excluded", "no-tools"],
+    );
+  });
+
   it("turns const into a one-value enum and infers missing types", () => {
     const { schema } = convert({ type: "object", properties: { mode: { const: "fast" }, n: { enum: [1, 2] } } });
     assert.deepEqual(schema?.properties, {

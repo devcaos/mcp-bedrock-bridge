@@ -38,6 +38,10 @@ export interface SanitizedSchema {
 
 const JSON_TYPES = new Set(["string", "number", "integer", "boolean", "array", "object", "null"]);
 const COMBINATORS = ["anyOf", "oneOf", "allOf", "not"] as const;
+// Keywords that only describe a value. They may sit next to a nullable pair (Pydantic writes
+// `default: null` and `title` on every `Optional[...] = None` field) and are dropped anyway,
+// except description, which is carried over.
+const ANNOTATIONS = new Set(["title", "description", "default", "examples", "deprecated", "readOnly", "writeOnly", "$comment"]);
 
 interface Context {
   problems: SchemaProblem[];
@@ -176,12 +180,13 @@ function sanitizeProperty(node: unknown, path: string, ctx: Context): unknown {
   return Object.fromEntries(entries);
 }
 
-// The non-null branch of `anyOf`/`oneOf: [X, { type: "null" }]`, if the node is exactly that.
+// The non-null branch of `anyOf`/`oneOf: [X, { type: "null" }]`, if the node is exactly that
+// (plus annotations).
 function unwrapNullable(node: Record<string, unknown>): Record<string, unknown> | undefined {
   for (const key of ["anyOf", "oneOf"]) {
     const branches = own(node, key);
     if (!Array.isArray(branches) || branches.length !== 2) continue;
-    const others = Object.keys(node).filter((k) => k !== key && k !== "description" && k !== "title");
+    const others = Object.keys(node).filter((k) => k !== key && !ANNOTATIONS.has(k));
     if (others.length > 0) continue;
     const isNull = (b: unknown) => isPlainObject(b) && own(b, "type") === "null" && Object.keys(b).length === 1;
     const [a, b] = branches as unknown[];
