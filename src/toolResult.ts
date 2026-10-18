@@ -66,6 +66,9 @@ export function toBedrockToolResult(
   const omitted = (what: string) =>
     onWarning({ code: "content-omitted", toolUseId, message: `Tool result ${toolUseId}: ${what}.` });
 
+  if (!isPlainObject(mcpResult)) {
+    onWarning({ code: "invalid-result", toolUseId, message: `Tool result ${toolUseId}: the MCP result isn't a plain object, sent as an empty result.` });
+  }
   const result = (isPlainObject(mcpResult) ? mcpResult : {}) as Record<string, unknown>;
   const { texts, images } = collectContent(own(result, "content"), omitted);
 
@@ -146,7 +149,8 @@ function collectContent(content: unknown, omitted: (what: string) => void): { te
     switch (type) {
       case "text": {
         const text = own(block, "text");
-        if (typeof text === "string") texts.push(text);
+        // Whitespace-only text counts as no text, so it never becomes a blank text block.
+        if (typeof text === "string" && text.trim().length > 0) texts.push(text);
         break;
       }
       case "image": {
@@ -154,7 +158,11 @@ function collectContent(content: unknown, omitted: (what: string) => void): { te
         if (image) images.push(image);
         else {
           texts.push(`[image omitted: ${mimeType}]`);
-          omitted(`an image (${mimeType}) was replaced by a marker, Bedrock takes png, jpeg, gif or webp`);
+          omitted(
+            IMAGE_FORMATS.has(mimeType.toLowerCase())
+              ? `an image (${mimeType}) with empty or invalid base64 data was replaced by a marker`
+              : `an image (${mimeType}) was replaced by a marker, Bedrock takes png, jpeg, gif or webp`,
+          );
         }
         break;
       }
@@ -196,7 +204,9 @@ function toImage(data: unknown, mimeType: string): ImageBlock | undefined {
   const format = IMAGE_FORMATS.get(mimeType.toLowerCase());
   if (!format || typeof data !== "string") return undefined;
   try {
-    return { format, source: { bytes: decodeBase64(data) } };
+    const bytes = decodeBase64(data);
+    // ImageSource.bytes needs at least 1 byte: an empty image would make Bedrock reject the request.
+    return bytes.length > 0 ? { format, source: { bytes } } : undefined;
   } catch {
     return undefined;
   }

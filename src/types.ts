@@ -54,7 +54,8 @@ export type BridgeWarningCode =
   | "duplicate-tool"
   | "tool-excluded"
   | "no-tools"
-  | "content-omitted";
+  | "content-omitted"
+  | "invalid-result";
 
 /** Something the library changed or dropped. Never contains argument values or result data. */
 export interface BridgeWarning {

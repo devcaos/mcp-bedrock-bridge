@@ -222,4 +222,44 @@ describe("toBedrockToolResult: images, audio and resources", () => {
     assert.deepEqual(content, [{ text: "[content omitted: video]\n\n[image omitted: image/png]" }]);
     assert.equal(warnings.length, 2);
   });
+
+  it("replaces images and image blobs with empty data by markers, with warnings", () => {
+    const { content, warnings } = convert({
+      content: [
+        { type: "image", data: "", mimeType: "image/png" },
+        { type: "resource", resource: { uri: "file:///empty.png", mimeType: "image/png", blob: "" } },
+      ],
+    });
+    assert.deepEqual(content, [{ text: "[image omitted: image/png]\n\n[resource omitted: file:///empty.png (image/png)]" }]);
+    assert.deepEqual(
+      warnings.map((w) => w.code),
+      ["content-omitted", "content-omitted"],
+    );
+    assert.match(warnings[0]?.message ?? "", /empty or invalid base64/);
+  });
+});
+
+describe("toBedrockToolResult: blank text and invalid results", () => {
+  it("treats whitespace-only text as no text", () => {
+    assert.deepEqual(convert({ content: [{ type: "text", text: "" }, { type: "text", text: " \n\t" }] }).content, [
+      { text: "(no content)" },
+    ]);
+    assert.deepEqual(convert({ content: [{ type: "text", text: "  " }, { type: "text", text: "kept" }] }).content, [{ text: "kept" }]);
+  });
+
+  it("doesn't keep whitespace-only text next to structuredContent", () => {
+    const { content } = convert({ content: [{ type: "text", text: "  " }], structuredContent: order }, { textMode: "always" });
+    assert.deepEqual(content, [{ json: order }]);
+  });
+
+  it("warns about a result that isn't an object", () => {
+    for (const result of [null, "text", ["a"]]) {
+      const { content, warnings } = convert(result as unknown as McpCallToolResult);
+      assert.deepEqual(content, [{ text: "(no content)" }]);
+      assert.deepEqual(
+        warnings.map((w) => w.code),
+        ["invalid-result"],
+      );
+    }
+  });
 });
