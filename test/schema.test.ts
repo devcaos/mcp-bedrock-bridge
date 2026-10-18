@@ -199,6 +199,10 @@ describe("root-level problems, untyped properties and maps", () => {
   const rootProblems: [string, unknown][] = [
     ["$ref at the root", { $ref: "#/definitions/X", definitions: { X: { type: "object" } } }],
     ["anyOf at the root", { type: "object", anyOf: [{ required: ["a"] }, { required: ["b"] }], properties: { a: { type: "string" } } }],
+    ["oneOf at the root", { type: "object", oneOf: [{ required: ["a"] }, { required: ["b"] }], properties: { a: { type: "string" } } }],
+    ["allOf at the root", { type: "object", allOf: [{ properties: { a: { type: "string" } } }] }],
+    ["not at the root", { type: "object", not: { required: ["a"] }, properties: { a: { type: "string" } } }],
+    ["an inputSchema that is null", null],
     ["a non-object root", { type: "array", items: { type: "string" } }],
     ["an inputSchema that isn't an object", "not a schema"],
     ["properties that isn't an object", { type: "object", properties: "x" }],
@@ -238,6 +242,29 @@ describe("root-level problems, untyped properties and maps", () => {
       warnings.map((w) => w.code),
       ["unsupported-schema"],
     );
+  });
+
+  it("never says \"(sent unchanged)\" for a tool that is sent with parts removed", () => {
+    const inputSchema = {
+      type: "object",
+      $schema: "http://json-schema.org/draft-07/schema#",
+      properties: {
+        any: { description: "Anything" },
+        tags: { type: "object", additionalProperties: { type: "string" } },
+        address: { type: "object", properties: { zip: { type: "string", pattern: "^[0-9]{5}$" } }, additionalProperties: false },
+        email: { type: "string", format: "email", minLength: 3 },
+      },
+    };
+    for (const policy of ["warn", "passthrough"] as const) {
+      const { schema, warnings } = convert(inputSchema, { onUnsafeSchema: policy });
+      assert.ok(schema, policy);
+      assert.deepEqual(
+        warnings.map((w) => w.code),
+        ["untyped-schema", "nested-schema", "map-schema", "nested-schema"],
+        policy,
+      );
+      for (const warning of warnings) assert.ok(!warning.message.includes("sent unchanged"), `${policy}: ${warning.message}`);
+    }
   });
 
   it("reports untyped properties as untyped-schema and keeps them under warn and passthrough", () => {

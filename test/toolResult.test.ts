@@ -262,6 +262,20 @@ describe("toBedrockToolResult: images, audio and resources", () => {
     );
     assert.match(warnings[0]?.message ?? "", /empty or invalid base64/);
   });
+
+  it("replaces images and image blobs that decode to nothing by markers", () => {
+    // atob skips ASCII whitespace, so these decode to 0 bytes; "=" alone is invalid base64.
+    for (const data of [" ", "\n\t", "="]) {
+      const { content, warnings } = convert({
+        content: [
+          { type: "image", data, mimeType: "image/png" },
+          { type: "resource", resource: { uri: "file:///empty.png", mimeType: "image/png", blob: data } },
+        ],
+      });
+      assert.deepEqual(content, [{ text: "[image omitted: image/png]\n\n[resource omitted: file:///empty.png (image/png)]" }], JSON.stringify(data));
+      assert.equal(warnings.length, 2, JSON.stringify(data));
+    }
+  });
 });
 
 describe("toBedrockToolResult: blank text and invalid results", () => {

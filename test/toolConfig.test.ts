@@ -182,6 +182,20 @@ describe("toMcpToolCall", () => {
     assert.throws(() => toMcpToolCall({ name: undefined, input: {} }, toolNames), UnknownToolError);
   });
 
+  it("rejects the original MCP name of a tool with a hashed alias", () => {
+    const long = "x".repeat(70);
+    const { toolNames: names } = toBedrockToolConfig([tool("a.b"), tool("a_b"), tool(long)], quiet);
+    const hashed = names.toBedrock("a.b");
+    assert.match(hashed ?? "", /^a_b_[0-9a-f]{8}$/);
+    assert.match(names.toBedrock(long) ?? "", /^x{55}_[0-9a-f]{8}$/);
+    assert.equal(toMcpToolCall({ name: hashed, input: {} }, names).name, "a.b");
+    // "a_b" is the real a_b tool, never a.b.
+    assert.equal(toMcpToolCall({ name: "a_b", input: {} }, names).name, "a_b");
+    for (const name of ["a.b", long]) {
+      assert.throws(() => toMcpToolCall({ name, input: {} }, names), UnknownToolError);
+    }
+  });
+
   it("rejects input that isn't an object", () => {
     for (const input of ["text", 3, null, ["a"]]) {
       assert.throws(() => toMcpToolCall({ name: "orders_get_status", input }, toolNames), TypeError);
