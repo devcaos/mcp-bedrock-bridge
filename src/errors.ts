@@ -1,0 +1,30 @@
+/** A part of a tool's inputSchema that isn't Nova-safe. */
+export interface SchemaIssue {
+  tool: string;
+  /** JSON Pointer inside the tool's inputSchema ("" is the root). */
+  path: string;
+  reason: string;
+}
+
+/** Thrown by `toBedrockToolConfig` with `onUnsafeSchema: "throw"`. */
+export class UnsafeSchemaError extends Error {
+  readonly issues: readonly SchemaIssue[];
+
+  constructor(issues: readonly SchemaIssue[]) {
+    const lines = issues.map((issue) => `- ${issue.tool} ${issue.path || "/"}: ${issue.reason}`);
+    super(`Tool schemas are not Nova-safe:\n${lines.join("\n")}`);
+    this.name = "UnsafeSchemaError";
+    this.issues = issues;
+  }
+}
+
+/** Thrown by `toMcpToolCall` when the model asks for a tool that wasn't sent to it. */
+export class UnknownToolError extends Error {
+  readonly toolName: string;
+
+  constructor(toolName: string) {
+    super(`The model called an unknown tool: ${JSON.stringify(toolName.slice(0, 100))}`);
+    this.name = "UnknownToolError";
+    this.toolName = toolName;
+  }
+}
