@@ -70,6 +70,31 @@ describe("toBedrockToolResult: text results", () => {
     assert.deepEqual(convert({ content: [] }, { maxJsonDepth: 256 }).content, [{ text: "(no content)" }]);
   });
 
+  it("uses the default maxJsonDepth when it is null", () => {
+    const text = JSON.stringify(order);
+    const { content } = convert(
+      { content: [{ type: "text", text }], structuredContent: order },
+      { maxJsonDepth: null as unknown as number },
+    );
+    assert.deepEqual(content, [{ json: order }]);
+  });
+
+  it("rejects a textMode that isn't auto, always or never", () => {
+    for (const textMode of ["Always", "none", "", 0, false]) {
+      assert.throws(
+        () => convert({ content: [] }, { textMode: textMode as never }),
+        (error: unknown) => error instanceof TypeError && error.message.includes("textMode"),
+      );
+    }
+  });
+
+  it("uses the auto textMode when it is null", () => {
+    const result = { content: [{ type: "text" as const, text: JSON.stringify(order) }], structuredContent: order };
+    assert.deepEqual(convert(result, { textMode: null as never }).content, [{ json: order }]);
+    const sentence = { content: [{ type: "text" as const, text: "Shipped." }], structuredContent: order };
+    assert.deepEqual(convert(sentence, { textMode: null as never }).content, [{ json: { result: order, text: "Shipped." } }]);
+  });
+
   it("rejects an invalid toolUseId", () => {
     for (const id of ["", "has space", "x".repeat(65)]) {
       assert.throws(() => toBedrockToolResult(id, { content: [] }), TypeError);

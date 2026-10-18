@@ -110,6 +110,32 @@ describe("toBedrockToolConfig", () => {
     assert.equal(toBedrockToolConfig([tool("a")], { ...quiet, maxSchemaDepth: 1 }).toolConfig.tools?.length, 0);
   });
 
+  it("uses the default maxSchemaDepth when it is null", () => {
+    const deep: Record<string, unknown> = { type: "string" };
+    let node = deep;
+    for (let i = 0; i < 20; i++) node = { type: "object", properties: { n: node } };
+    const options = { ...quiet, maxSchemaDepth: null as unknown as number };
+    // 20 nested objects are 41 levels deep: past the default of 32.
+    assert.equal(toBedrockToolConfig([tool("a", { inputSchema: node })], options).toolConfig.tools?.length, 0);
+    assert.equal(toBedrockToolConfig([tool("a")], options).toolConfig.tools?.length, 1);
+  });
+
+  it("rejects an onUnsafeSchema that isn't warn, throw or passthrough", () => {
+    for (const onUnsafeSchema of ["Throw", "warning", "", 1, true, {}]) {
+      assert.throws(
+        () => toBedrockToolConfig([tool("a")], { ...quiet, onUnsafeSchema: onUnsafeSchema as never }),
+        (error: unknown) => error instanceof TypeError && error.message.includes("onUnsafeSchema"),
+      );
+    }
+  });
+
+  it("uses the warn policy when onUnsafeSchema is null", () => {
+    const withRef = tool("a", { inputSchema: { type: "object", properties: { x: { $ref: "#/$defs/X" } } } });
+    const { toolConfig, warnings } = toBedrockToolConfig([withRef], { ...quiet, onUnsafeSchema: null as never });
+    assert.equal(toolConfig.tools?.length, 0);
+    assert.ok(warnings.some((w) => w.code === "tool-excluded"));
+  });
+
   it("doesn't read a tool's fields from a polluted prototype", () => {
     const proto = Object.prototype as Record<string, unknown>;
     proto.description = "polluted";

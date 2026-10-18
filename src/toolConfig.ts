@@ -2,7 +2,7 @@ import type { Tool, ToolConfiguration, ToolInputSchema, ToolUseBlock } from "@aw
 import { UnknownToolError, UnsafeSchemaError } from "./errors.ts";
 import type { SchemaIssue } from "./errors.ts";
 import { ToolNameMap } from "./names.ts";
-import { depthOption, isPlainObject, own, quote, warnToConsole } from "./runtime.ts";
+import { depthOption, enumOption, isPlainObject, own, quote, warnToConsole } from "./runtime.ts";
 import { sanitizeInputSchema } from "./schema.ts";
 import type { UnsafeSchemaPolicy } from "./schema.ts";
 import type { BridgeWarning, McpListToolsResult, McpTool, McpToolCall, WarningHandler } from "./types.ts";
@@ -18,11 +18,12 @@ export interface ToBedrockToolConfigOptions {
    * Under every policy, a tool with a root-level problem (non-object root, $ref or a combinator
    * at the root, properties that isn't an object) or a schema deeper than maxSchemaDepth is
    * never sent.
+   * Any other value throws a TypeError; null uses the default.
    */
   onUnsafeSchema?: UnsafeSchemaPolicy;
   /**
-   * Maximum JSON nesting depth of an inputSchema, an integer from 1 to 256 (default 32). Deeper
-   * or circular schemas are unsafe.
+   * Maximum JSON nesting depth of an inputSchema, an integer from 1 to 256 (default 32; null
+   * uses the default). Deeper or circular schemas are unsafe.
    */
   maxSchemaDepth?: number;
   /** Called for every warning (default: console.warn). Pass `() => {}` to silence them. */
@@ -39,6 +40,7 @@ export interface BedrockToolConfigResult {
 }
 
 const DEFAULT_MAX_SCHEMA_DEPTH = 32;
+const POLICIES: readonly UnsafeSchemaPolicy[] = ["warn", "throw", "passthrough"];
 
 /**
  * Converts MCP tools (a `tools/list` result or its `tools` array) into a Bedrock Converse
@@ -48,7 +50,7 @@ export function toBedrockToolConfig(
   tools: readonly McpTool[] | McpListToolsResult,
   options: ToBedrockToolConfigOptions = {},
 ): BedrockToolConfigResult {
-  const policy = options.onUnsafeSchema ?? "warn";
+  const policy = enumOption("onUnsafeSchema", options.onUnsafeSchema, POLICIES, "warn");
   const maxDepth = depthOption("maxSchemaDepth", options.maxSchemaDepth, DEFAULT_MAX_SCHEMA_DEPTH);
   const onWarning = options.onWarning ?? warnToConsole;
   const list = toolList(tools);

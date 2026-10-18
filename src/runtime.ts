@@ -39,13 +39,22 @@ export function quote(text: string, max = 100): string {
 
 const MAX_DEPTH_OPTION = 256;
 
-/** A depth option: the default when undefined, otherwise an integer from 1 to 256. */
+/** A depth option: the default when null or undefined, otherwise an integer from 1 to 256. */
 export function depthOption(name: string, value: unknown, fallback: number): number {
-  if (value === undefined) return fallback;
+  if (value === undefined || value === null) return fallback;
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > MAX_DEPTH_OPTION) {
     throw new TypeError(`${name} must be an integer from 1 to ${MAX_DEPTH_OPTION}`);
   }
   return value;
+}
+
+/** A string option with a fixed set of values: the default when null or undefined. */
+export function enumOption<T extends string>(name: string, value: unknown, allowed: readonly T[], fallback: T): T {
+  if (value === undefined || value === null) return fallback;
+  if (!allowed.includes(value as T)) {
+    throw new TypeError(`${name} must be one of ${allowed.map((v) => JSON.stringify(v)).join(", ")}`);
+  }
+  return value as T;
 }
 
 /**
