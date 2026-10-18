@@ -33,7 +33,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && npm run typecheck",
@@ -41,7 +42,7 @@
     "test:bedrock": "node --env-file-if-exists=.env.local scripts/test-bedrock.ts"
   },
   "peerDependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3"
+    "@aws-sdk/client-bedrock-runtime": ">=3.1152.0 <4"
   },
   "devDependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1152.0",
