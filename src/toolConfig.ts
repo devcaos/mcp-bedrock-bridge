@@ -10,12 +10,14 @@ import type { BridgeWarning, McpListToolsResult, McpTool, McpToolCall, WarningHa
 export interface ToBedrockToolConfigOptions {
   /**
    * What to do with a schema that isn't Nova-safe (default "warn"):
-   * - "warn": nested objects are kept (made safe recursively) with a warning; a tool with a part
-   *   that can't be converted ($ref, anyOf/oneOf/allOf/not, union types, a schema deeper than
-   *   maxSchemaDepth) is left out of the toolConfig, with a warning.
+   * - "warn": nested objects, untyped properties and maps are kept (made safe recursively) with a
+   *   warning; a tool with a part that can't be converted ($ref, anyOf/oneOf/allOf/not, union
+   *   types) is left out of the toolConfig, with a warning.
    * - "throw": throw an UnsafeSchemaError listing every problem, in any tool.
-   * - "passthrough": keep every tool; parts that can't be converted are sent unchanged. Schemas
-   *   deeper than maxSchemaDepth are still left out.
+   * - "passthrough": like "warn", but parts that can't be converted are sent unchanged.
+   * Under every policy, a tool with a root-level problem (non-object root, $ref or a combinator
+   * at the root, properties that isn't an object) or a schema deeper than maxSchemaDepth is
+   * never sent.
    */
   onUnsafeSchema?: UnsafeSchemaPolicy;
   /** Maximum JSON nesting depth of an inputSchema (default 32). Deeper or circular schemas are unsafe. */
@@ -80,10 +82,10 @@ export function toBedrockToolConfig(
       if (problems.length === 0) accepted.push({ name, description: descriptionOf(mcpTool), schema });
       continue;
     }
-    const excluded = problems.some((p) => p.tooDeep || (p.fatal && policy === "warn"));
+    const excluded = problems.some((p) => p.excludesTool || (p.fatal && policy === "warn"));
     for (const problem of problems) {
       warn({
-        code: problem.tooDeep ? "schema-too-deep" : problem.fatal ? "unsupported-schema" : "nested-schema",
+        code: problem.code,
         tool: name,
         path: problem.path,
         message: `${quote(name)} ${problem.path || "/"}: ${problem.reason}${

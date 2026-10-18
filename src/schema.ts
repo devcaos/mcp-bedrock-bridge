@@ -7,22 +7,28 @@ import { isPlainObject, jsonDepth, own } from "./runtime.ts";
 // - every object gets a `required` array, empty when all its fields are optional.
 // Validation keywords (pattern, minLength, format...) are dropped: the MCP server still validates
 // the arguments against its full schema.
+// A problem at the root ($ref, anyOf, a non-object root...) leaves nothing usable to send, so it
+// excludes the tool under every policy, like a schema that is too deep.
 // The input comes from an MCP server and is untrusted: only own properties are read, and every
 // object built from its keys goes through Object.fromEntries, so a property named "__proto__"
 // stays a plain key and never changes a prototype.
 
 export type UnsafeSchemaPolicy = "warn" | "throw" | "passthrough";
 
+export type SchemaProblemCode = "nested-schema" | "untyped-schema" | "map-schema" | "unsupported-schema" | "schema-too-deep";
+
 export interface SchemaProblem {
+  code: SchemaProblemCode;
   path: string;
   reason: string;
   /**
-   * false: the schema was made safe, but it nests objects, which Nova may handle worse.
-   * true: a part couldn't be converted ($ref, anyOf, a non-object root...).
+   * false: the schema was made safe, but Nova may handle it worse (nested object, untyped
+   * property, dropped additionalProperties).
+   * true: a part couldn't be converted ($ref, anyOf, union types...).
    */
   fatal: boolean;
-  /** The schema is deeper than maxDepth (or circular) and wasn't converted at all. */
-  tooDeep?: boolean;
+  /** The schema can't be sent at all (a root-level problem, too deep or circular). */
+  excludesTool?: boolean;
 }
 
 export interface SanitizedSchema {
@@ -45,27 +51,28 @@ export function sanitizeInputSchema(
   const problems: SchemaProblem[] = [];
   const empty = { type: "object", properties: {}, required: [] };
   if (input === undefined) return { schema: empty, problems };
+  const rootProblem = (path: string, reason: string) =>
+    problems.push({ code: "unsupported-schema", path, reason, fatal: true, excludesTool: true });
   if (!isPlainObject(input)) {
-    problems.push({ path: "", reason: "inputSchema is not an object", fatal: true });
+    rootProblem("", "inputSchema is not an object");
     return { schema: empty, problems };
   }
   if (jsonDepth(input, options.maxDepth) === Infinity) {
     problems.push({
+      code: "schema-too-deep",
       path: "",
       reason: `inputSchema is nested deeper than ${options.maxDepth} levels (or is circular)`,
       fatal: true,
-      tooDeep: true,
+      excludesTool: true,
     });
     return { schema: empty, problems };
   }
 
   const ctx: Context = { problems, passthrough: options.passthrough };
   const type = own(input, "type");
-  if (type !== undefined && type !== "object") {
-    problems.push({ path: "/type", reason: `root type must be "object", got ${describe(type)}`, fatal: true });
-  }
+  if (type !== undefined && type !== "object") rootProblem("/type", `root type must be "object", got ${describe(type)}`);
   for (const key of ["$ref", ...COMBINATORS]) {
-    if (own(input, key) !== undefined) problems.push({ path: `/${key}`, reason: `${key} at the root is not supported`, fatal: true });
+    if (own(input, key) !== undefined) rootProblem(`/${key}`, `${key} at the root is not supported`);
   }
   const { properties, required } = sanitizeObjectMembers(input, "", ctx);
   return { schema: { type: "object", properties, required }, problems };
@@ -86,7 +93,24 @@ function sanitizeObjectMembers(
       ]),
     );
   } else if (rawProperties !== undefined) {
-    ctx.problems.push({ path: `${path}/properties`, reason: "properties is not an object", fatal: true });
+    ctx.problems.push({
+      code: "unsupported-schema",
+      path: `${path}/properties`,
+      reason: "properties is not an object",
+      fatal: true,
+      excludesTool: path === "",
+    });
+  }
+  // A map (zod's z.record) only has additionalProperties, which isn't sent: the model would see
+  // an object that takes no keys.
+  const additional = own(node, "additionalProperties");
+  if (additional !== undefined && additional !== false && Object.keys(properties).length === 0) {
+    ctx.problems.push({
+      code: "map-schema",
+      path: `${path}/additionalProperties`,
+      reason: "additionalProperties is dropped and the object has no properties, so the model sees an object with no keys",
+      fatal: false,
+    });
   }
   const rawRequired = own(node, "required");
   const required = Array.isArray(rawRequired)
@@ -97,11 +121,11 @@ function sanitizeObjectMembers(
 
 function sanitizeProperty(node: unknown, path: string, ctx: Context): unknown {
   if (node === true) {
-    ctx.problems.push({ path, reason: "schema `true` (any value) has no type", fatal: false });
+    ctx.problems.push({ code: "untyped-schema", path, reason: "schema `true` (any value) has no type", fatal: false });
     return {};
   }
   if (!isPlainObject(node)) {
-    ctx.problems.push({ path, reason: `schema is ${describe(node)}, not an object`, fatal: true });
+    ctx.problems.push({ code: "unsupported-schema", path, reason: `schema is ${describe(node)}, not an object`, fatal: true });
     return ctx.passthrough ? node : {};
   }
 
@@ -118,7 +142,7 @@ function sanitizeProperty(node: unknown, path: string, ctx: Context): unknown {
 
   const unsupported = ["$ref", ...COMBINATORS].filter((key) => own(node, key) !== undefined);
   if (unsupported.length > 0) {
-    ctx.problems.push({ path, reason: `${unsupported.join(", ")} is not supported`, fatal: true });
+    ctx.problems.push({ code: "unsupported-schema", path, reason: `${unsupported.join(", ")} is not supported`, fatal: true });
     return ctx.passthrough ? node : {};
   }
 
@@ -131,11 +155,13 @@ function sanitizeProperty(node: unknown, path: string, ctx: Context): unknown {
 
   const enumValues = own(node, "enum");
   const constValue = own(node, "const");
-  if (Array.isArray(enumValues)) entries.push(["enum", [...enumValues]]);
-  else if (constValue !== undefined) entries.push(["enum", [constValue]]);
+  let values = Array.isArray(enumValues) ? [...enumValues] : constValue !== undefined ? [constValue] : undefined;
+  // With a single non-null type (a nullable type collapses to one), null is no longer a valid value.
+  if (values && typeof type === "string" && type !== "null") values = values.filter((value) => value !== null);
+  if (values && values.length > 0) entries.push(["enum", values]);
 
   if (type === "object") {
-    ctx.problems.push({ path, reason: "nested object", fatal: false });
+    ctx.problems.push({ code: "nested-schema", path, reason: "nested object", fatal: false });
     const { properties, required } = sanitizeObjectMembers(node, path, ctx);
     entries.push(["properties", properties], ["required", required]);
   } else if (type === "array") {
@@ -143,7 +169,7 @@ function sanitizeProperty(node: unknown, path: string, ctx: Context): unknown {
     if (isPlainObject(items) || items === true) {
       entries.push(["items", sanitizeProperty(items, `${path}/items`, ctx)]);
     } else if (items !== undefined) {
-      ctx.problems.push({ path: `${path}/items`, reason: "tuple or invalid items is not supported", fatal: true });
+      ctx.problems.push({ code: "unsupported-schema", path: `${path}/items`, reason: "tuple or invalid items is not supported", fatal: true });
       if (ctx.passthrough) entries.push(["items", items]);
     }
   }
@@ -174,7 +200,7 @@ function normalizeType(node: Record<string, unknown>, path: string, ctx: Context
     if (nonNull.length === 1) type = nonNull[0];
     else if (nonNull.length === 0) type = "null";
     else {
-      ctx.problems.push({ path: `${path}/type`, reason: `union type ${describe(type)} is not supported`, fatal: true });
+      ctx.problems.push({ code: "unsupported-schema", path: `${path}/type`, reason: `union type ${describe(type)} is not supported`, fatal: true });
       return ctx.passthrough ? type : undefined;
     }
   }
@@ -187,11 +213,11 @@ function normalizeType(node: Record<string, unknown>, path: string, ctx: Context
       const [kind] = kinds;
       if (kinds.size === 1 && (kind === "string" || kind === "boolean" || kind === "integer" || kind === "number")) return kind;
     }
-    ctx.problems.push({ path, reason: "no type (any value)", fatal: false });
+    ctx.problems.push({ code: "untyped-schema", path, reason: "no type (any value)", fatal: false });
     return undefined;
   }
   if (typeof type !== "string" || !JSON_TYPES.has(type)) {
-    ctx.problems.push({ path: `${path}/type`, reason: `unknown type ${describe(type)}`, fatal: true });
+    ctx.problems.push({ code: "unsupported-schema", path: `${path}/type`, reason: `unknown type ${describe(type)}`, fatal: true });
     return ctx.passthrough ? type : undefined;
   }
   return type;

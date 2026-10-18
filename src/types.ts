@@ -46,6 +46,8 @@ export interface McpToolCall {
 
 export type BridgeWarningCode =
   | "nested-schema"
+  | "untyped-schema"
+  | "map-schema"
   | "unsupported-schema"
   | "schema-too-deep"
   | "invalid-tool"

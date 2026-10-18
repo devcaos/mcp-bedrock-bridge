@@ -141,6 +141,101 @@ describe("Nova-safe input schemas", () => {
     const { schema } = convert({ type: "array", items: { type: "string" } });
     assert.equal(schema, undefined);
   });
+
+  it("drops null from the enum of a collapsed nullable type", () => {
+    const { schema } = convert({
+      type: "object",
+      properties: {
+        a: { type: ["string", "null"], enum: ["x", "y", null] },
+        b: { anyOf: [{ type: "string", enum: ["x", null] }, { type: "null" }] },
+        c: { type: ["string", "null"], enum: [null] },
+      },
+    });
+    assert.deepEqual(schema?.properties, {
+      a: { type: "string", enum: ["x", "y"] },
+      b: { type: "string", enum: ["x"] },
+      c: { type: "string" },
+    });
+  });
+});
+
+describe("root-level problems, untyped properties and maps", () => {
+  const rootProblems: [string, unknown][] = [
+    ["$ref at the root", { $ref: "#/definitions/X", definitions: { X: { type: "object" } } }],
+    ["anyOf at the root", { type: "object", anyOf: [{ required: ["a"] }, { required: ["b"] }], properties: { a: { type: "string" } } }],
+    ["a non-object root", { type: "array", items: { type: "string" } }],
+    ["an inputSchema that isn't an object", "not a schema"],
+    ["properties that isn't an object", { type: "object", properties: "x" }],
+  ];
+
+  for (const [label, inputSchema] of rootProblems) {
+    it(`leaves out a tool with ${label} under every policy`, () => {
+      for (const policy of ["warn", "passthrough"] as const) {
+        const { schema, warnings } = convert(inputSchema, { onUnsafeSchema: policy });
+        assert.equal(schema, undefined, policy);
+        assert.ok(warnings.some((w) => w.code === "unsupported-schema"), policy);
+        assert.ok(warnings.some((w) => w.code === "tool-excluded"), policy);
+        assert.ok(!warnings.some((w) => w.message.includes("sent unchanged")), policy);
+      }
+      assert.throws(() => convert(inputSchema, { onUnsafeSchema: "throw" }), UnsafeSchemaError);
+    });
+  }
+
+  it("still sends a nested unsupported part unchanged with passthrough when the root is fine", () => {
+    const field = { anyOf: [{ type: "string" }, { type: "number" }] };
+    const { schema, warnings } = convert({ type: "object", properties: { field } }, { onUnsafeSchema: "passthrough" });
+    assert.deepEqual(schema?.properties, { field });
+    assert.deepEqual(
+      warnings.map((w) => w.code),
+      ["unsupported-schema"],
+    );
+  });
+
+  it("reports untyped properties as untyped-schema and keeps them under warn and passthrough", () => {
+    const inputSchema = { type: "object", properties: { any: { description: "Anything" }, t: true } };
+    for (const policy of ["warn", "passthrough"] as const) {
+      const { schema, warnings } = convert(inputSchema, { onUnsafeSchema: policy });
+      assert.deepEqual(schema?.properties, { any: { description: "Anything" }, t: {} }, policy);
+      assert.deepEqual(
+        warnings.map((w) => [w.code, w.path]),
+        [
+          ["untyped-schema", "/properties/any"],
+          ["untyped-schema", "/properties/t"],
+        ],
+        policy,
+      );
+    }
+    assert.throws(
+      () => convert(inputSchema, { onUnsafeSchema: "throw" }),
+      (error: unknown) => error instanceof UnsafeSchemaError && error.issues.length === 2,
+    );
+  });
+
+  it("warns when a map's additionalProperties is dropped", () => {
+    const { schema, warnings } = convert({
+      type: "object",
+      properties: { tags: { type: "object", additionalProperties: { type: "string" } } },
+    });
+    assert.deepEqual(schema?.properties, { tags: { type: "object", properties: {}, required: [] } });
+    assert.deepEqual(
+      warnings.map((w) => [w.code, w.path]),
+      [
+        ["nested-schema", "/properties/tags"],
+        ["map-schema", "/properties/tags/additionalProperties"],
+      ],
+    );
+    const root = convert({ type: "object", additionalProperties: true });
+    assert.deepEqual(
+      root.warnings.map((w) => [w.code, w.path]),
+      [["map-schema", "/additionalProperties"]],
+    );
+    assert.throws(() => convert({ type: "object", additionalProperties: {} }, { onUnsafeSchema: "throw" }), UnsafeSchemaError);
+  });
+
+  it("doesn't warn about additionalProperties: false or an object that has properties", () => {
+    assert.equal(convert({ type: "object", properties: {}, additionalProperties: false }).warnings.length, 0);
+    assert.equal(convert({ type: "object", properties: { a: { type: "string" } }, additionalProperties: true }).warnings.length, 0);
+  });
 });
 
 describe("untrusted schemas", () => {
