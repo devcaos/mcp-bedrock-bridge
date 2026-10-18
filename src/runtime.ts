@@ -29,6 +29,14 @@ export function own(object: Record<string, unknown>, key: string): unknown {
   return Object.hasOwn(object, key) ? object[key] : undefined;
 }
 
+/**
+ * A server- or model-provided string for an error or warning message: cut to `max` characters
+ * and JSON-quoted, so a newline in it can't forge extra log lines.
+ */
+export function quote(text: string, max = 100): string {
+  return JSON.stringify(text.slice(0, max));
+}
+
 const MAX_DEPTH_OPTION = 256;
 
 /** A depth option: the default when undefined, otherwise an integer from 1 to 256. */

@@ -1,3 +1,5 @@
+import { quote } from "./runtime.ts";
+
 /** A part of a tool's inputSchema that isn't Nova-safe. */
 export interface SchemaIssue {
   tool: string;
@@ -11,7 +13,7 @@ export class UnsafeSchemaError extends Error {
   readonly issues: readonly SchemaIssue[];
 
   constructor(issues: readonly SchemaIssue[]) {
-    const lines = issues.map((issue) => `- ${issue.tool} ${issue.path || "/"}: ${issue.reason}`);
+    const lines = issues.map((issue) => `- ${quote(issue.tool)} ${quote(issue.path || "/", 200)}: ${issue.reason}`);
     super(`Tool schemas are not Nova-safe:\n${lines.join("\n")}`);
     this.name = "UnsafeSchemaError";
     this.issues = issues;
@@ -23,7 +25,7 @@ export class UnknownToolError extends Error {
   readonly toolName: string;
 
   constructor(toolName: string) {
-    super(`The model called an unknown tool: ${JSON.stringify(toolName.slice(0, 100))}`);
+    super(`The model called an unknown tool: ${quote(toolName)}`);
     this.name = "UnknownToolError";
     this.toolName = toolName;
   }

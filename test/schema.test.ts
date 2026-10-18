@@ -288,6 +288,22 @@ describe("untrusted schemas", () => {
     assert.ok(convert(tooDeep, { maxSchemaDepth: 40 }).schema);
   });
 
+  it("quotes tool names and paths in warnings and errors, so a newline can't forge a log line", () => {
+    const evil = { name: "evil\nFAKE LOG LINE", description: "x", inputSchema: { type: "object", properties: { "p\nINJECTED": { $ref: "#" } } } };
+    const warnings: BridgeWarning[] = [];
+    toBedrockToolConfig([evil], { onWarning: (w) => warnings.push(w) });
+    assert.ok(warnings.length >= 2);
+    for (const warning of warnings) assert.ok(!warning.message.includes("\n"), warning.message);
+    assert.ok(warnings[0]?.message.startsWith(String.raw`"evil\nFAKE LOG LINE" "/properties/p\nINJECTED": `), warnings[0]?.message);
+    assert.throws(
+      () => toBedrockToolConfig([evil], { onUnsafeSchema: "throw" }),
+      (error: unknown) =>
+        error instanceof UnsafeSchemaError &&
+        error.message.split("\n").length === 2 &&
+        error.message.includes(String.raw`"evil\nFAKE LOG LINE" "/properties/p\nINJECTED"`),
+    );
+  });
+
   it("doesn't hang on a circular schema", () => {
     const node: Record<string, unknown> = { type: "array" };
     node.items = node;

@@ -1,5 +1,5 @@
 import type { ContentBlock, ImageBlock, ImageFormat, ToolResultContentBlock } from "@aws-sdk/client-bedrock-runtime";
-import { decodeBase64, depthOption, isPlainObject, own, warnToConsole } from "./runtime.ts";
+import { decodeBase64, depthOption, isPlainObject, own, quote, warnToConsole } from "./runtime.ts";
 import type { McpCallToolResult, McpCompatibilityCallToolResult, WarningHandler } from "./types.ts";
 
 // Builds the Converse toolResult for an MCP tools/call result.
@@ -160,15 +160,15 @@ function collectContent(content: unknown, omitted: (what: string) => void): { te
           texts.push(`[image omitted: ${mimeType}]`);
           omitted(
             IMAGE_FORMATS.has(mimeType.toLowerCase())
-              ? `an image (${mimeType}) with empty or invalid base64 data was replaced by a marker`
-              : `an image (${mimeType}) was replaced by a marker, Bedrock takes png, jpeg, gif or webp`,
+              ? `an image (${quote(mimeType)}) with empty or invalid base64 data was replaced by a marker`
+              : `an image (${quote(mimeType)}) was replaced by a marker, Bedrock takes png, jpeg, gif or webp`,
           );
         }
         break;
       }
       case "audio":
         texts.push(`[audio omitted: ${mimeType}]`);
-        omitted(`audio (${mimeType}) was replaced by a marker, Bedrock tool results can't hold audio`);
+        omitted(`audio (${quote(mimeType)}) was replaced by a marker, Bedrock tool results can't hold audio`);
         break;
       case "resource_link": {
         const uri = stringOr(own(block, "uri"), "");
@@ -188,13 +188,13 @@ function collectContent(content: unknown, omitted: (what: string) => void): { te
         else if (image) images.push(image);
         else {
           texts.push(`[resource omitted: ${uri} (${resourceMime})]`);
-          omitted(`a binary resource (${resourceMime}) was replaced by a marker`);
+          omitted(`a binary resource (${quote(resourceMime)}) was replaced by a marker`);
         }
         break;
       }
       default:
         texts.push(`[content omitted: ${stringOr(type, "unknown")}]`);
-        omitted(`content of type ${JSON.stringify(String(type).slice(0, 40))} was replaced by a marker`);
+        omitted(`content of type ${quote(String(type), 40)} was replaced by a marker`);
     }
   }
   return { texts, images };

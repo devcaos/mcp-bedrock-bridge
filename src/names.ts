@@ -3,7 +3,9 @@
 // need a Bedrock alias. The aliases are deterministic: the same tool list always gives the
 // same names, which keeps prompts (and prompt caches) stable.
 
-const BEDROCK_TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
+import { quote } from "./runtime.ts";
+
+const BEDROCK_TOOL_NAME =/^[a-zA-Z0-9_-]{1,64}$/;
 const MAX_LENGTH = 64;
 // Room for "_" + 8 hex characters of hash.
 const HASHED_PREFIX_LENGTH = MAX_LENGTH - 9;
@@ -26,7 +28,7 @@ export class ToolNameMap {
     const names = [...mcpNames];
     for (const name of names) {
       if (typeof name !== "string" || name.length === 0) throw new TypeError("Tool names must be non-empty strings");
-      if (this.#toBedrock.has(name)) throw new TypeError(`Duplicate tool name: ${JSON.stringify(name.slice(0, 100))}`);
+      if (this.#toBedrock.has(name)) throw new TypeError(`Duplicate tool name: ${quote(name)}`);
       // Valid names are reserved first, so an alias never takes a real tool's name.
       if (isValidBedrockToolName(name)) this.#add(name, name);
       else this.#toBedrock.set(name, "");

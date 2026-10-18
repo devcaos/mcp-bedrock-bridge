@@ -252,6 +252,21 @@ describe("toBedrockToolResult: blank text and invalid results", () => {
     assert.deepEqual(content, [{ json: order }]);
   });
 
+  it("quotes server mime types in warnings, so a newline can't forge a log line", () => {
+    const { warnings } = convert({
+      content: [
+        { type: "audio", data: "AAAA", mimeType: "audio/x\nFAKE LOG LINE" },
+        { type: "image", data: PNG_BASE64, mimeType: "image/x\nFAKE" },
+        { type: "resource", resource: { uri: "file:///a", mimeType: "application/x\nFAKE", blob: "AAAA" } },
+      ],
+    });
+    assert.equal(warnings.length, 3);
+    for (const warning of warnings) {
+      assert.ok(!warning.message.includes("\n"), warning.message);
+      assert.ok(warning.message.includes("\\nFAKE"), warning.message);
+    }
+  });
+
   it("warns about a result that isn't an object", () => {
     for (const result of [null, "text", ["a"]]) {
       const { content, warnings } = convert(result as unknown as McpCallToolResult);

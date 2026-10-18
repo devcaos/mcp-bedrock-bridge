@@ -2,7 +2,7 @@ import type { Tool, ToolConfiguration, ToolInputSchema, ToolUseBlock } from "@aw
 import { UnknownToolError, UnsafeSchemaError } from "./errors.ts";
 import type { SchemaIssue } from "./errors.ts";
 import { ToolNameMap } from "./names.ts";
-import { depthOption, isPlainObject, own, warnToConsole } from "./runtime.ts";
+import { depthOption, isPlainObject, own, quote, warnToConsole } from "./runtime.ts";
 import { sanitizeInputSchema } from "./schema.ts";
 import type { UnsafeSchemaPolicy } from "./schema.ts";
 import type { BridgeWarning, McpListToolsResult, McpTool, McpToolCall, WarningHandler } from "./types.ts";
@@ -93,7 +93,7 @@ export function toBedrockToolConfig(
         code: problem.code,
         tool: name,
         path: problem.path,
-        message: `${quote(name)} ${problem.path || "/"}: ${problem.reason}${
+        message: `${quote(name)} ${quote(problem.path || "/", 200)}: ${problem.reason}${
           problem.fatal && !excluded ? " (sent unchanged)" : ""
         }.`,
       });
@@ -149,8 +149,4 @@ function descriptionOf(tool: Record<string, unknown>, name: string): string {
     if (typeof text === "string" && text.trim().length > 0) return text;
   }
   return name;
-}
-
-function quote(name: string): string {
-  return JSON.stringify(name.slice(0, 100));
 }
