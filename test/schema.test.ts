@@ -202,6 +202,9 @@ describe("root-level problems, untyped properties and maps", () => {
     ["a non-object root", { type: "array", items: { type: "string" } }],
     ["an inputSchema that isn't an object", "not a schema"],
     ["properties that isn't an object", { type: "object", properties: "x" }],
+    ["nested properties that isn't an object", { type: "object", properties: { o: { type: "object", properties: "x" } } }],
+    ["a root type list without object", { type: ["null"] }],
+    ["a root union type", { type: ["object", "string"], properties: { a: { type: "string" } } }],
   ];
 
   for (const [label, inputSchema] of rootProblems) {
@@ -216,6 +219,16 @@ describe("root-level problems, untyped properties and maps", () => {
       assert.throws(() => convert(inputSchema, { onUnsafeSchema: "throw" }), UnsafeSchemaError);
     });
   }
+
+  it("reduces a root type of [\"object\"] or [\"object\", \"null\"] to \"object\"", () => {
+    for (const type of [["object"], ["object", "null"], ["null", "object"]]) {
+      for (const policy of ["warn", "passthrough", "throw"] as const) {
+        const { schema, warnings } = convert({ type, properties: { a: { type: "string" } } }, { onUnsafeSchema: policy });
+        assert.deepEqual(schema, { type: "object", properties: { a: { type: "string" } }, required: [] }, `${policy} ${type}`);
+        assert.equal(warnings.length, 0, `${policy} ${type}`);
+      }
+    }
+  });
 
   it("still sends a nested unsupported part unchanged with passthrough when the root is fine", () => {
     const field = { anyOf: [{ type: "string" }, { type: "number" }] };

@@ -16,8 +16,8 @@ export interface ToBedrockToolConfigOptions {
    * - "throw": throw an UnsafeSchemaError listing every problem, in any tool.
    * - "passthrough": like "warn", but parts that can't be converted are sent unchanged.
    * Under every policy, a tool with a root-level problem (non-object root, $ref or a combinator
-   * at the root, properties that isn't an object) or a schema deeper than maxSchemaDepth is
-   * never sent.
+   * at the root), a properties that isn't an object (at any level) or a schema deeper than
+   * maxSchemaDepth is never sent.
    * Any other value throws a TypeError; null uses the default.
    */
   onUnsafeSchema?: UnsafeSchemaPolicy;

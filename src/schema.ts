@@ -7,8 +7,9 @@ import { isPlainObject, jsonDepth, own } from "./runtime.ts";
 // - every object gets a `required` array, empty when all its fields are optional.
 // Validation keywords (pattern, minLength, format...) are dropped: the MCP server still validates
 // the arguments against its full schema.
-// A problem at the root ($ref, anyOf, a non-object root...) leaves nothing usable to send, so it
-// excludes the tool under every policy, like a schema that is too deep.
+// A problem at the root ($ref, anyOf, a non-object root...) or a `properties` that isn't an
+// object (at any level) leaves nothing usable to send, so it excludes the tool under every
+// policy, like a schema that is too deep.
 // The input comes from an MCP server and is untrusted: only own properties are read, and every
 // object built from its keys goes through Object.fromEntries, so a property named "__proto__"
 // stays a plain key and never changes a prototype.
@@ -27,7 +28,10 @@ export interface SchemaProblem {
    * true: a part couldn't be converted ($ref, anyOf, union types...).
    */
   fatal: boolean;
-  /** The schema can't be sent at all (a root-level problem, too deep or circular). */
+  /**
+   * The schema can't be sent at all (a root-level problem, properties that isn't an object, too
+   * deep or circular).
+   */
   excludesTool?: boolean;
 }
 
@@ -73,8 +77,9 @@ export function sanitizeInputSchema(
   }
 
   const ctx: Context = { problems, passthrough: options.passthrough };
-  const type = own(input, "type");
-  if (type !== undefined && type !== "object") rootProblem("/type", `root type must be "object", got ${describe(type)}`);
+  const rawType = own(input, "type");
+  const type = collapseNullable(rawType);
+  if (type !== undefined && type !== "object") rootProblem("/type", `root type must be "object", got ${describe(rawType)}`);
   for (const key of ["$ref", ...COMBINATORS]) {
     if (own(input, key) !== undefined) rootProblem(`/${key}`, `${key} at the root is not supported`);
   }
@@ -97,12 +102,14 @@ function sanitizeObjectMembers(
       ]),
     );
   } else if (rawProperties !== undefined) {
+    // Even nested, there is no safe way to send it: dropping it hides the object's fields from
+    // the model, and sending it unchanged sends a schema that isn't valid JSON Schema.
     ctx.problems.push({
       code: "unsupported-schema",
       path: `${path}/properties`,
       reason: "properties is not an object",
       fatal: true,
-      excludesTool: path === "",
+      excludesTool: true,
     });
   }
   // A map (zod's z.record) only has additionalProperties, which isn't sent: the model would see
@@ -199,15 +206,10 @@ function unwrapNullable(node: Record<string, unknown>): Record<string, unknown> 
 // A single JSON type. `["string", "null"]` becomes "string"; a missing type is inferred from
 // properties/items/enum when possible.
 function normalizeType(node: Record<string, unknown>, path: string, ctx: Context): unknown {
-  let type = own(node, "type");
+  const type = collapseNullable(own(node, "type"));
   if (Array.isArray(type)) {
-    const nonNull = type.filter((t) => t !== "null");
-    if (nonNull.length === 1) type = nonNull[0];
-    else if (nonNull.length === 0) type = "null";
-    else {
-      ctx.problems.push({ code: "unsupported-schema", path: `${path}/type`, reason: `union type ${describe(type)} is not supported`, fatal: true });
-      return ctx.passthrough ? type : undefined;
-    }
+    ctx.problems.push({ code: "unsupported-schema", path: `${path}/type`, reason: `union type ${describe(type)} is not supported`, fatal: true });
+    return ctx.passthrough ? type : undefined;
   }
   if (type === undefined) {
     if (own(node, "properties") !== undefined) return "object";
@@ -225,6 +227,16 @@ function normalizeType(node: Record<string, unknown>, path: string, ctx: Context
     ctx.problems.push({ code: "unsupported-schema", path: `${path}/type`, reason: `unknown type ${describe(type)}`, fatal: true });
     return ctx.passthrough ? type : undefined;
   }
+  return type;
+}
+
+// `["X", "null"]` and `["X"]` become "X", a type list with only "null" becomes "null"; anything
+// else (a single type, a real union) is returned unchanged.
+function collapseNullable(type: unknown): unknown {
+  if (!Array.isArray(type)) return type;
+  const nonNull = type.filter((t) => t !== "null");
+  if (nonNull.length === 1) return nonNull[0];
+  if (nonNull.length === 0) return "null";
   return type;
 }
 
