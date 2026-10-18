@@ -5,7 +5,7 @@
 
 import { quote } from "./runtime.ts";
 
-const BEDROCK_TOOL_NAME =/^[a-zA-Z0-9_-]{1,64}$/;
+const BEDROCK_TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 const MAX_LENGTH = 64;
 // Room for "_" + 8 hex characters of hash.
 const HASHED_PREFIX_LENGTH = MAX_LENGTH - 9;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isValidBedrockToolName, toBedrockToolConfig, toMcpToolCall, ToolNameMap, UnknownToolError } from "../src/index.ts";
+import { isValidBedrockToolName, toBedrockToolConfig, toMcpToolCall, ToolNameMap, UnknownToolError, UnsafeSchemaError } from "../src/index.ts";
 import type { BridgeWarning, McpTool } from "../src/index.ts";
 
 const schema = { type: "object", properties: { id: { type: "string" } }, required: ["id"] };
@@ -87,6 +87,18 @@ describe("toBedrockToolConfig", () => {
     assert.deepEqual(
       warnings.map((w) => w.code),
       ["duplicate-tool", "invalid-tool"],
+    );
+  });
+
+  it("names a tool without a name (unnamed), unquoted, in an UnsafeSchemaError", () => {
+    const tools = [{ inputSchema: schema } as unknown as McpTool, tool("(unnamed)", { inputSchema: "x" as never })];
+    assert.throws(
+      () => toBedrockToolConfig(tools, { ...quiet, onUnsafeSchema: "throw" }),
+      (error: unknown) =>
+        error instanceof UnsafeSchemaError &&
+        error.issues[0]?.tool === "" &&
+        error.message ===
+          'Tool schemas are not Nova-safe:\n- (unnamed) "/": tool has no name\n- "(unnamed)" "/": inputSchema is not an object',
     );
   });
 

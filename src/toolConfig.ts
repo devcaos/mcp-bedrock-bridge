@@ -70,7 +70,7 @@ export function toBedrockToolConfig(
     const rawName = own(fields, "name");
     const name = typeof rawName === "string" ? rawName : "";
     if (name.length === 0) {
-      if (policy === "throw") issues.push({ tool: "(unnamed)", path: "", reason: "tool has no name" });
+      if (policy === "throw") issues.push({ tool: "", path: "", reason: "tool has no name" });
       else warn({ code: "invalid-tool", message: "Skipped a tool without a name." });
       continue;
     }
