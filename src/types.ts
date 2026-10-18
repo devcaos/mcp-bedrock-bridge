@@ -57,7 +57,11 @@ export type BridgeWarningCode =
   | "content-omitted"
   | "invalid-result";
 
-/** Something the library changed or dropped. Never contains argument values or result data. */
+/**
+ * Something the library changed or dropped. Never contains argument values or result content
+ * (text, JSON, image data), but the message can include server-provided tool names, schema
+ * paths, mime types and URIs (quoted and length-capped).
+ */
 export interface BridgeWarning {
   code: BridgeWarningCode;
   message: string;
