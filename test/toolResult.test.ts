@@ -292,6 +292,19 @@ describe("toBedrockToolResult: blank text and invalid results", () => {
     }
   });
 
+  it("doesn't throw on a content type that can't be turned into a string", () => {
+    const result = JSON.parse('{"content":[{"type":{"toString":1}},{"type":7}]}') as McpCallToolResult;
+    const { content, warnings } = convert(result);
+    assert.deepEqual(content, [{ text: "[content omitted: unknown]\n\n[content omitted: unknown]" }]);
+    assert.deepEqual(
+      warnings.map((w) => w.message),
+      [
+        'Tool result tooluse_abc-1: content of type "object" was replaced by a marker.',
+        'Tool result tooluse_abc-1: content of type "number" was replaced by a marker.',
+      ],
+    );
+  });
+
   it("warns about a result that isn't an object", () => {
     for (const result of [null, "text", ["a"]]) {
       const { content, warnings } = convert(result as unknown as McpCallToolResult);

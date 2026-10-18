@@ -197,7 +197,8 @@ function collectContent(content: unknown, omitted: (what: string) => void): { te
       }
       default:
         texts.push(`[content omitted: ${stringOr(type, "unknown")}]`);
-        omitted(`content of type ${quote(String(type), 40)} was replaced by a marker`);
+        // Never String() a server value: {"toString": 1} makes it throw.
+        omitted(`content of type ${quote(typeof type === "string" ? type : typeof type, 40)} was replaced by a marker`);
     }
   }
   return { texts, images };
