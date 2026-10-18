@@ -1,0 +1,57 @@
+{
+  "name": "mcp-bedrock-bridge",
+  "version": "0.1.0",
+  "description": "Use MCP server tools with the Amazon Bedrock Converse API safely: Nova-safe tool schemas, reversible tool names and valid toolResult blocks.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "bedrock",
+    "converse",
+    "amazon-nova",
+    "tool-use"
+  ],
+  "license": "MIT",
+  "author": "Luis Miguel Castel",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devcaos/mcp-bedrock-bridge.git"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . && npm run typecheck",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "test:bedrock": "node --env-file-if-exists=.env.local scripts/test-bedrock.ts"
+  },
+  "peerDependencies": {
+    "@aws-sdk/client-bedrock-runtime": ">=3.1152.0 <4"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1152.0",
+    "@eslint/js": "^10.0.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@types/node": "^24.19.2",
+    "eslint": "^10.13.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.2",
+    "zod": "^4.6.7"
+  }
+}
