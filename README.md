@@ -206,7 +206,7 @@ A name that is already valid is kept. Otherwise each invalid character becomes `
 
 ## Verified behaviour
 
-`npm run test:bedrock` runs an MCP server in-process (official SDK v1, `InMemoryTransport`) and talks to real Bedrock. These are the results from two runs on 2026-10-18, `eu.amazon.nova-2-lite-v1:0`, `eu-west-1`, `temperature: 0`, with the same numbers both times:
+`npm run test:bedrock` runs an MCP server in-process (official SDK v1, `InMemoryTransport`) and talks to real Bedrock. These are the results from three runs on 2026-10-18, `eu.amazon.nova-2-lite-v1:0`, `eu-west-1`, `temperature: 0`, with the same numbers both times:
 
 | Check | Result |
 |---|---|
