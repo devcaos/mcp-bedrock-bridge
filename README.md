@@ -24,6 +24,7 @@ Not published to npm. Install from GitHub; npm runs the `prepare` script, which 
 npm install github:devcaos/mcp-bedrock-bridge @aws-sdk/client-bedrock-runtime
 ```
 
+- npm 11 may print an `install-scripts` warning about `prepare`. With npm 11.19.0 the build still ran when npm packed the git dependency, and `npm install-scripts ls` listed nothing to review.
 - `@aws-sdk/client-bedrock-runtime` (v3) is a peer dependency, used only for types. Tested with 3.1152.0.
 - There are no runtime dependencies. The MCP SDK isn't required: the input types are structural, so results from `@modelcontextprotocol/sdk` (v1, tested with 1.32.1) and the v2 packages (`@modelcontextprotocol/client`) both fit without a cast.
 - ESM only (`import`, not `require`).
