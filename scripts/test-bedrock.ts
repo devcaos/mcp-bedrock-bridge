@@ -11,6 +11,7 @@
 //   A. Negative control: the same history with a toolResult that mixes text and json.
 //   B. A toolResult with text + a PNG image.
 //   C. A tool whose schema has a nested object (kept by the default "warn" policy).
+//   D. A tool whose schema has an untyped property (kept by the default "warn" policy).
 
 import { existsSync } from "node:fs";
 import { crc32, deflateSync } from "node:zlib";
@@ -194,6 +195,39 @@ async function main() {
     result: "INFO",
     details: nestedResponse
       ? `accepted, warnings: ${nestedWarnings.map((w) => w.code).join(",")}, toolUse: ${nestedUse ? JSON.stringify(nestedUse.input) : "none"}, address.city: ${String(address?.city)}`
+      : `rejected: ${calls.at(-1)?.error}`,
+  });
+
+  // D. An untyped property ({ description } only, like zod's z.any()), kept by the "warn" policy.
+  const untypedWarnings: BridgeWarning[] = [];
+  const untyped = toBedrockToolConfig(
+    [
+      {
+        name: "log_event",
+        description: "Record an analytics event with a free-form payload.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            event: { type: "string", description: "Event name" },
+            payload: { description: "Any JSON value with the event details" },
+          },
+          required: ["event", "payload"],
+        },
+      },
+    ],
+    { onWarning: (w) => untypedWarnings.push(w) },
+  );
+  const untypedResponse = await converse(
+    "D. untyped property",
+    [{ role: "user", content: [{ text: "Log a signup event: plan pro, 3 seats." }] }],
+    untyped.toolConfig,
+  );
+  const untypedUse = toolUseOf(untypedResponse);
+  checks.push({
+    check: "untyped property schema",
+    result: "INFO",
+    details: untypedResponse
+      ? `accepted, warnings: ${untypedWarnings.map((w) => w.code).join(",")}, toolUse: ${untypedUse ? JSON.stringify(untypedUse.input) : `none (${untypedResponse.stopReason})`}`
       : `rejected: ${calls.at(-1)?.error}`,
   });
 
